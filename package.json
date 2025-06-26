@@ -1,0 +1,17 @@
+{
+  "name": "ragavan",
+  "version": "1.0.0",
+  "description": "A backup system npm package named ragavan.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VishnuKaniyamvayal/ragavan.git"
+  }
+}
