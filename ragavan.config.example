@@ -1,0 +1,64 @@
+{
+  "source": "/path/to/source",
+  "destination": "/path/to/backup",
+  "exclude": ["node_modules", ".git", "*.log"],
+  "include": ["*.js", "*.ts", "*.json"],
+  "compression": true,
+  "encryption": false,
+  "databases": [
+    {
+      "name": "primary_db",
+      "type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "your_password",
+      "database": "your_database",
+      "ssl": false,
+      "ignore_tables": ["logs", "temp_*", "cache_*", "sessions"]
+    },
+    {
+      "name": "analytics_db",
+      "type": "postgresql",
+      "host": "localhost",
+      "port": 5432,
+      "user": "postgres",
+      "password": "your_password",
+      "database": "analytics",
+      "ssl": false,
+      "ignore_tables": ["audit_logs", "temp_data", "debug_logs"]
+    },
+    {
+      "name": "user_data",
+      "type": "mongodb",
+      "host": "localhost",
+      "port": 27017,
+      "database": "user_data",
+      "ignore_tables": ["system_logs", "temp_collections"]
+    }
+  ],
+  "backup": {
+    "destination": "./backups",
+    "filename": "backup-{database}-{date}",
+    "dateFormat": "YYYY-MM-DD-HH-mm",
+    "compression": true,
+    "encryption": {
+      "enabled": true,
+      "algorithm": "aes-256-gcm",
+      "password": "your_encryption_password"
+    },
+    "retention": {
+      "days": 30,
+      "maxBackups": 100
+    }
+  },
+  "schedule": {
+    "enabled": true,
+    "daily_time": "02:00",
+    "timezone": "UTC"
+  },
+  "logging": {
+    "level": "info",
+    "file": "./logs/ragavan.log"
+  }
+} 
