@@ -52,6 +52,30 @@
       "maxBackups": 100
     }
   },
+  "storage": {
+    "providers": {
+      "local": {
+        "type": "local",
+        "path": "./backups"
+      },
+      "s3_production": {
+        "type": "s3",
+        "bucket": "your-backup-bucket",
+        "region": "us-east-1",
+        "prefix": "database-backups",
+        "accessKeyId": "your_access_key_id",
+        "secretAccessKey": "your_secret_access_key"
+      },
+      "s3_archive": {
+        "type": "s3",
+        "bucket": "your-archive-bucket",
+        "region": "us-west-2",
+        "prefix": "long-term-backups",
+        "accessKeyId": "your_access_key_id",
+        "secretAccessKey": "your_secret_access_key"
+      }
+    }
+  },
   "schedule": {
     "enabled": true,
     "daily_time": "02:00",

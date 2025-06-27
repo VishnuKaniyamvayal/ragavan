@@ -3,12 +3,14 @@ import path from 'path';
 import archiver from 'archiver';
 import DatabaseManager from './database.js';
 import EncryptionManager from './encryption.js';
+import { StorageManager } from './storage.js';
 
 class BackupManager {
   constructor(config) {
     this.config = config;
     this.dbManager = new DatabaseManager(config);
     this.encryptionManager = new EncryptionManager(config);
+    this.storageManager = new StorageManager(config);
   }
 
   formatDate(date = new Date()) {
@@ -96,6 +98,48 @@ class BackupManager {
     }
   }
 
+  async uploadBackupToStorage(backupFilePath, databaseName) {
+    const { filename } = this.config.backup;
+    const formattedDate = this.formatDate();
+    const baseFilename = filename
+      .replace('{date}', formattedDate)
+      .replace('{database}', databaseName);
+    
+    const destinationPath = `${baseFilename}.ragavan`;
+    
+    try {
+      console.log(`Uploading backup to storage providers...`);
+      const uploadResults = await this.storageManager.uploadToAll(backupFilePath, destinationPath);
+      
+      const successfulUploads = Object.entries(uploadResults)
+        .filter(([_, result]) => result.success)
+        .map(([provider, result]) => ({ provider, path: result.path }));
+      
+      const failedUploads = Object.entries(uploadResults)
+        .filter(([_, result]) => !result.success)
+        .map(([provider, result]) => ({ provider, error: result.error }));
+      
+      if (successfulUploads.length > 0) {
+        console.log(`Successfully uploaded to ${successfulUploads.length} storage provider(s):`);
+        successfulUploads.forEach(upload => {
+          console.log(`  - ${upload.provider}: ${upload.path}`);
+        });
+      }
+      
+      if (failedUploads.length > 0) {
+        console.warn(`Failed uploads to ${failedUploads.length} storage provider(s):`);
+        failedUploads.forEach(upload => {
+          console.warn(`  - ${upload.provider}: ${upload.error}`);
+        });
+      }
+      
+      return uploadResults;
+    } catch (error) {
+      console.error(`Upload to storage failed: ${error.message}`);
+      throw error;
+    }
+  }
+
   async compressFile(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(outputPath);
@@ -122,41 +166,56 @@ class BackupManager {
     const { retention } = this.config.backup;
     if (!retention) return;
 
-    const backupDir = await this.createBackupDirectory();
-    const files = await fs.readdir(backupDir);
-    const backupFiles = files.filter(file => file.endsWith('.ragavan'));
+    try {
+      // Cleanup from all storage providers
+      const providers = this.storageManager.getProviders();
+      
+      for (const providerName of providers) {
+        try {
+          const files = await this.storageManager.listFromProvider(providerName);
+          const backupFiles = files.filter(file => file.endsWith('.ragavan'));
+          
+          // Sort by modification time (oldest first)
+          const fileStats = await Promise.all(
+            backupFiles.map(async (file) => {
+              // For now, we'll use file name to determine age
+              // In a production system, you might want to store metadata
+              const fileName = path.basename(file);
+              const dateMatch = fileName.match(/(\d{4}-\d{2}-\d{2})/);
+              const fileDate = dateMatch ? new Date(dateMatch[1]) : new Date(0);
+              return { file, fileDate };
+            })
+          );
 
-    // Sort by modification time (oldest first)
-    const fileStats = await Promise.all(
-      backupFiles.map(async (file) => {
-        const filePath = path.join(backupDir, file);
-        const stats = await fs.stat(filePath);
-        return { file, filePath, mtime: stats.mtime };
-      })
-    );
+          fileStats.sort((a, b) => a.fileDate - b.fileDate);
 
-    fileStats.sort((a, b) => a.mtime - b.mtime);
+          // Remove files older than retention days
+          if (retention.days) {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - retention.days);
 
-    // Remove files older than retention days
-    if (retention.days) {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - retention.days);
+            for (const fileStat of fileStats) {
+              if (fileStat.fileDate < cutoffDate) {
+                await this.storageManager.deleteFromAll(fileStat.file);
+                console.log(`Removed old backup from ${providerName}: ${fileStat.file}`);
+              }
+            }
+          }
 
-      for (const fileStat of fileStats) {
-        if (fileStat.mtime < cutoffDate) {
-          await fs.remove(fileStat.filePath);
-          console.log(`Removed old backup: ${fileStat.file}`);
+          // Remove files exceeding max count
+          if (retention.maxBackups && fileStats.length > retention.maxBackups) {
+            const filesToRemove = fileStats.slice(0, fileStats.length - retention.maxBackups);
+            for (const fileStat of filesToRemove) {
+              await this.storageManager.deleteFromAll(fileStat.file);
+              console.log(`Removed excess backup from ${providerName}: ${fileStat.file}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Cleanup failed for provider ${providerName}:`, error.message);
         }
       }
-    }
-
-    // Remove files exceeding max count
-    if (retention.maxBackups && fileStats.length > retention.maxBackups) {
-      const filesToRemove = fileStats.slice(0, fileStats.length - retention.maxBackups);
-      for (const fileStat of filesToRemove) {
-        await fs.remove(fileStat.filePath);
-        console.log(`Removed excess backup: ${fileStat.file}`);
-      }
+    } catch (error) {
+      console.error('Cleanup process failed:', error.message);
     }
   }
 
@@ -178,20 +237,30 @@ class BackupManager {
 
       console.log(`Found data in ${Object.keys(allData).length} databases`);
       
-      // Create backup files for each database
-      const backupPaths = [];
+      // Create backup files for each database and upload to storage
+      const backupResults = [];
       for (const [databaseName, databaseData] of Object.entries(allData)) {
         if (Object.keys(databaseData).length > 0) {
           const backupPath = await this.createBackupFile(databaseData, databaseName);
-          backupPaths.push(backupPath);
+          const uploadResults = await this.uploadBackupToStorage(backupPath, databaseName);
+          
+          backupResults.push({
+            database: databaseName,
+            localPath: backupPath,
+            uploadResults: uploadResults
+          });
+          
+          // Clean up local file after upload
+          await fs.remove(backupPath);
+          console.log(`Cleaned up local backup file: ${backupPath}`);
         }
       }
       
-      // Cleanup old backups
+      // Cleanup old backups from all storage providers
       await this.cleanupOldBackups();
       
       console.log('Backup process completed successfully!');
-      return backupPaths;
+      return backupResults;
       
     } catch (error) {
       console.error('Backup failed:', error.message);
@@ -225,11 +294,20 @@ class BackupManager {
 
       console.log(`Found data in ${Object.keys(allData[databaseName]).length} tables in ${databaseName}`);
       
-      // Create backup file for the database
+      // Create backup file for the database and upload to storage
       const backupPath = await this.createBackupFile(allData[databaseName], databaseName);
+      const uploadResults = await this.uploadBackupToStorage(backupPath, databaseName);
+      
+      // Clean up local file after upload
+      await fs.remove(backupPath);
+      console.log(`Cleaned up local backup file: ${backupPath}`);
       
       console.log(`Backup process completed successfully for ${databaseName}!`);
-      return backupPath;
+      return {
+        database: databaseName,
+        localPath: backupPath,
+        uploadResults: uploadResults
+      };
       
     } catch (error) {
       console.error(`Backup failed for ${databaseName}:`, error.message);

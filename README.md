@@ -13,6 +13,8 @@ A comprehensive database backup system npm package named **ragavan**.
 - **Configurable**: Highly customizable via `ragavan.config`
 - **Automatic Scheduling**: Built-in cron-like scheduler for daily backups
 - **Multiple Databases**: Backup multiple databases simultaneously
+- **Multi-Storage Support**: Upload to multiple destinations (Local, S3, etc.)
+- **Extensible Storage**: Plugin architecture for custom storage providers
 
 ## Installation
 
@@ -73,6 +75,30 @@ Create a `ragavan.config` file in your project root:
       "maxBackups": 100
     }
   },
+  "storage": {
+    "providers": {
+      "local": {
+        "type": "local",
+        "path": "./backups"
+      },
+      "s3_production": {
+        "type": "s3",
+        "bucket": "your-backup-bucket",
+        "region": "us-east-1",
+        "prefix": "database-backups",
+        "accessKeyId": "your_access_key_id",
+        "secretAccessKey": "your_secret_access_key"
+      },
+      "s3_archive": {
+        "type": "s3",
+        "bucket": "your-archive-bucket",
+        "region": "us-west-2",
+        "prefix": "long-term-backups",
+        "accessKeyId": "your_access_key_id",
+        "secretAccessKey": "your_secret_access_key"
+      }
+    }
+  },
   "schedule": {
     "enabled": true,
     "daily_time": "02:00",
@@ -92,9 +118,10 @@ Create a `ragavan.config` file in your project root:
 // Import in your Next.js server code
 import { backup } from 'ragavan';
 
-// Will backup all databases using settings from ragavan.config
-const backupPaths = await backup();
-console.log('Backups created:', backupPaths);
+// Will backup all databases and upload to all storage providers
+const backupResults = await backup();
+console.log('Backup results:', backupResults);
+// Output: [{ database: 'primary_db', localPath: '...', uploadResults: {...} }]
 ```
 
 ### Method 2: Automatic Scheduled Backups
@@ -106,7 +133,7 @@ import { startScheduler, stopScheduler, getSchedulerStatus } from 'ragavan';
 startScheduler();
 
 // The scheduler will now run backups daily at the specified time
-// (e.g., 02:00 UTC as configured above)
+// and upload to all configured storage providers
 
 // Check scheduler status
 const status = getSchedulerStatus();
@@ -122,11 +149,35 @@ stopScheduler();
 import { backupDatabase } from 'ragavan';
 
 // Backup only the primary database
-const backupPath = await backupDatabase('primary_db');
-console.log('Backup created:', backupPath);
+const backupResult = await backupDatabase('primary_db');
+console.log('Backup result:', backupResult);
 ```
 
-### Method 4: Trigger scheduled backup manually
+### Method 4: Storage Management
+```js
+import { 
+  uploadToStorage, 
+  uploadToSpecificProvider, 
+  getStorageProviders,
+  listStorageFiles 
+} from 'ragavan';
+
+// Upload a file to all storage providers
+const uploadResults = await uploadToStorage('./my-file.txt', 'uploads/my-file.txt');
+
+// Upload to specific provider
+await uploadToSpecificProvider('s3_production', './my-file.txt', 'uploads/my-file.txt');
+
+// Get list of storage providers
+const providers = getStorageProviders();
+console.log('Available providers:', providers);
+
+// List files in S3 bucket
+const files = await listStorageFiles('s3_production', 'database-backups/');
+console.log('S3 files:', files);
+```
+
+### Method 5: Trigger scheduled backup manually
 ```js
 import { startScheduler, triggerScheduledBackup } from 'ragavan';
 
@@ -137,13 +188,13 @@ startScheduler();
 await triggerScheduledBackup();
 ```
 
-### Method 5: Override configuration
+### Method 6: Override configuration
 ```js
 // Import in your Next.js server code
 import { backup } from 'ragavan';
 
 // Override config with direct parameters
-const backupPaths = await backup({
+const backupResults = await backup({
   databases: [
     {
       name: 'custom_db',
@@ -156,9 +207,16 @@ const backupPaths = await backup({
       ignore_tables: ['temp_*']
     }
   ],
-  backup: {
-    destination: './custom-backups',
-    compression: false
+  storage: {
+    providers: {
+      s3_custom: {
+        type: 's3',
+        bucket: 'my-custom-bucket',
+        region: 'us-east-1',
+        accessKeyId: 'key',
+        secretAccessKey: 'secret'
+      }
+    }
   }
 });
 ```
@@ -223,6 +281,47 @@ console.log('Configured databases:', databases);
 }
 ```
 
+## Storage Providers
+
+### Local Storage
+```json
+{
+  "local": {
+    "type": "local",
+    "path": "./backups"
+  }
+}
+```
+
+### AWS S3
+```json
+{
+  "s3_production": {
+    "type": "s3",
+    "bucket": "your-backup-bucket",
+    "region": "us-east-1",
+    "prefix": "database-backups",
+    "accessKeyId": "your_access_key_id",
+    "secretAccessKey": "your_secret_access_key"
+  }
+}
+```
+
+### Multiple Storage Providers
+You can configure multiple storage providers for redundancy:
+
+```json
+{
+  "storage": {
+    "providers": {
+      "local": { "type": "local", "path": "./backups" },
+      "s3_primary": { "type": "s3", "bucket": "primary-backup-bucket", ... },
+      "s3_secondary": { "type": "s3", "bucket": "secondary-backup-bucket", ... }
+    }
+  }
+}
+```
+
 ## Configuration Options
 
 ### Database Configuration
@@ -237,12 +336,17 @@ console.log('Configured databases:', databases);
 - `ignore_tables`: Array of tables to ignore (supports wildcards like `temp_*`)
 
 ### Backup Configuration
-- `destination`: Backup storage directory
+- `destination`: Local backup storage directory
 - `filename`: Backup filename pattern (use `{database}` and `{date}` placeholders)
 - `dateFormat`: Date format for filename
 - `compression`: Enable ZIP compression
 - `encryption`: Encryption settings
 - `retention`: Backup retention policy
+
+### Storage Configuration
+- `providers`: Object containing storage provider configurations
+- Each provider can be `local` or `s3` type
+- S3 providers require bucket, region, and credentials
 
 ### Encryption Configuration
 - `enabled`: Enable encryption
@@ -288,7 +392,42 @@ startScheduler();
 // 4. Handle multiple databases
 // 5. Apply ignore_tables rules
 // 6. Encrypt and compress backups
-// 7. Clean up old backups based on retention policy
+// 7. Upload to all configured storage providers
+// 8. Clean up old backups based on retention policy
+```
+
+## Extending Storage Providers
+
+You can create custom storage providers by extending the `StorageProvider` class:
+
+```js
+import { StorageProvider, getStorageManager } from 'ragavan';
+
+class CustomStorageProvider extends StorageProvider {
+  async upload(filePath, destinationPath) {
+    // Implement your upload logic
+    console.log(`Uploading ${filePath} to custom storage as ${destinationPath}`);
+  }
+
+  async delete(filePath) {
+    // Implement your delete logic
+    console.log(`Deleting ${filePath} from custom storage`);
+  }
+
+  async list(prefix = '') {
+    // Implement your list logic
+    return [];
+  }
+
+  async exists(filePath) {
+    // Implement your exists logic
+    return false;
+  }
+}
+
+// Add custom provider
+const storageManager = getStorageManager();
+storageManager.addProvider('custom', new CustomStorageProvider({}));
 ```
 
 ## API
@@ -296,8 +435,15 @@ startScheduler();
 ### Backup Functions
 - `backup(options = {})`: Creates backups of today's data from all databases
 - `backupDatabase(databaseName, options = {})`: Creates backup for a specific database
-- `restore(backupPath, options = {})`: Restores data from backup file
+- `restore(backupPath, outputPath = null)`: Restores data from backup file
 - `getConnectedDatabases(options = {})`: Returns list of configured database names
+
+### Storage Functions
+- `uploadToStorage(filePath, destinationPath, options = {})`: Upload to all storage providers
+- `uploadToSpecificProvider(providerName, filePath, destinationPath, options = {})`: Upload to specific provider
+- `getStorageProviders(options = {})`: Returns list of available storage providers
+- `listStorageFiles(providerName, prefix = '', options = {})`: List files in storage provider
+- `deleteFromStorage(filePath, options = {})`: Delete file from all storage providers
 
 ### Scheduler Functions
 - `startScheduler(options = {})`: Starts the automatic backup scheduler
@@ -310,6 +456,10 @@ startScheduler();
 - `DatabaseManager`: Database connection and query management
 - `EncryptionManager`: File encryption/decryption utilities
 - `Scheduler`: Automatic scheduling management
+- `StorageManager`: Multi-storage provider management
+- `StorageProvider`: Base class for storage providers
+- `LocalStorageProvider`: Local file system storage
+- `S3StorageProvider`: AWS S3 storage
 
 ## License
 

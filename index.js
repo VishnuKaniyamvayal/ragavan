@@ -2,9 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import BackupManager from './src/backup.js';
 import Scheduler from './src/scheduler.js';
+import { StorageManager } from './src/storage.js';
 
 // Global scheduler instance
 let globalScheduler = null;
+let globalStorageManager = null;
 
 function loadConfig() {
   const configPath = path.join(process.cwd(), 'ragavan.config');
@@ -82,7 +84,7 @@ export async function backupDatabase(databaseName, options = {}) {
   return await backupManager.performBackupForDatabase(databaseName);
 }
 
-export async function restore(backupPath, options = {}) {
+export async function restore(backupPath, outputPath = null) {
   const config = loadConfig();
   
   if (!config && Object.keys(options).length === 0) {
@@ -115,6 +117,51 @@ export function getConnectedDatabases(options = {}) {
   }
   
   return finalConfig.databases.map(db => db.name);
+}
+
+// Storage functions
+export function getStorageManager(options = {}) {
+  const config = loadConfig();
+  
+  if (!config && Object.keys(options).length === 0) {
+    throw new Error('No configuration found. Please create a ragavan.config file or provide configuration options.');
+  }
+  
+  const finalConfig = {
+    ...config,
+    ...options
+  };
+  
+  if (!globalStorageManager) {
+    globalStorageManager = new StorageManager(finalConfig);
+  }
+  
+  return globalStorageManager;
+}
+
+export async function uploadToStorage(filePath, destinationPath, options = {}) {
+  const storageManager = getStorageManager(options);
+  return await storageManager.uploadToAll(filePath, destinationPath);
+}
+
+export async function uploadToSpecificProvider(providerName, filePath, destinationPath, options = {}) {
+  const storageManager = getStorageManager(options);
+  return await storageManager.uploadToProvider(providerName, filePath, destinationPath);
+}
+
+export function getStorageProviders(options = {}) {
+  const storageManager = getStorageManager(options);
+  return storageManager.getProviders();
+}
+
+export async function listStorageFiles(providerName, prefix = '', options = {}) {
+  const storageManager = getStorageManager(options);
+  return await storageManager.listFromProvider(providerName, prefix);
+}
+
+export async function deleteFromStorage(filePath, options = {}) {
+  const storageManager = getStorageManager(options);
+  return await storageManager.deleteFromAll(filePath);
 }
 
 // Scheduler functions
@@ -188,4 +235,5 @@ process.on('SIGTERM', () => {
 export { BackupManager } from './src/backup.js';
 export { default as DatabaseManager } from './src/database.js';
 export { default as EncryptionManager } from './src/encryption.js';
-export { default as Scheduler } from './src/scheduler.js'; 
+export { default as Scheduler } from './src/scheduler.js';
+export { StorageManager, StorageProvider, LocalStorageProvider, S3StorageProvider } from './src/storage.js'; 
