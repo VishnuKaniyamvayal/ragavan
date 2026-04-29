@@ -52,6 +52,7 @@ export async function backup(options = {}) {
 }
 
 export async function backupDatabase(databaseName, options = {}) {
+
   // Load config from ragavan.config file
   const config = loadConfig();
   
@@ -84,7 +85,7 @@ export async function backupDatabase(databaseName, options = {}) {
   return await backupManager.performBackupForDatabase(databaseName);
 }
 
-export async function restore(backupPath, outputPath = null) {
+export async function restore(backupPath, options = {}) {
   const config = loadConfig();
   
   if (!config && Object.keys(options).length === 0) {

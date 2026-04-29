@@ -25,16 +25,14 @@ class EncryptionManager {
       const iv = crypto.randomBytes(16);
       const key = this.generateKey(this.password, salt);
 
-      const cipher = crypto.createCipher(this.algorithm, key);
+      const cipher = crypto.createCipheriv(this.algorithm, key, iv);
       cipher.setAAD(Buffer.from('ragavan-backup', 'utf8'));
       
-      let encrypted = cipher.update(inputData, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-      
+      const encrypted = Buffer.concat([cipher.update(inputData), cipher.final()]);
       const authTag = cipher.getAuthTag();
       
       // Combine salt, iv, authTag, and encrypted data
-      const encryptedData = Buffer.concat([salt, iv, authTag, Buffer.from(encrypted, 'hex')]);
+      const encryptedData = Buffer.concat([salt, iv, authTag, encrypted]);
       
       await fs.writeFile(outputPath, encryptedData);
       console.log(`File encrypted successfully: ${outputPath}`);
@@ -61,12 +59,11 @@ class EncryptionManager {
       
       const key = this.generateKey(this.password, salt);
       
-      const decipher = crypto.createDecipher(this.algorithm, key);
+      const decipher = crypto.createDecipheriv(this.algorithm, key, iv);
       decipher.setAAD(Buffer.from('ragavan-backup', 'utf8'));
       decipher.setAuthTag(authTag);
       
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
+      const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
       
       await fs.writeFile(outputPath, decrypted);
       console.log(`File decrypted successfully: ${outputPath}`);
@@ -85,16 +82,14 @@ class EncryptionManager {
       const iv = crypto.randomBytes(16);
       const key = this.generateKey(this.password, salt);
 
-      const cipher = crypto.createCipher(this.algorithm, key);
+      const cipher = crypto.createCipheriv(this.algorithm, key, iv);
       cipher.setAAD(Buffer.from('ragavan-backup', 'utf8'));
       
-      let encrypted = cipher.update(data, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
-      
+      const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
       const authTag = cipher.getAuthTag();
       
       // Return base64 encoded string containing salt, iv, authTag, and encrypted data
-      const encryptedData = Buffer.concat([salt, iv, authTag, Buffer.from(encrypted, 'hex')]);
+      const encryptedData = Buffer.concat([salt, iv, authTag, encrypted]);
       return encryptedData.toString('base64');
     } catch (error) {
       throw new Error(`String encryption failed: ${error.message}`);
@@ -117,14 +112,13 @@ class EncryptionManager {
       
       const key = this.generateKey(this.password, salt);
       
-      const decipher = crypto.createDecipher(this.algorithm, key);
+      const decipher = crypto.createDecipheriv(this.algorithm, key, iv);
       decipher.setAAD(Buffer.from('ragavan-backup', 'utf8'));
       decipher.setAuthTag(authTag);
       
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
+      const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
       
-      return decrypted;
+      return decrypted.toString('utf8');
     } catch (error) {
       throw new Error(`String decryption failed: ${error.message}`);
     }

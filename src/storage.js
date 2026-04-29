@@ -29,11 +29,19 @@ class StorageProvider {
 class LocalStorageProvider extends StorageProvider {
   constructor(config) {
     super(config);
-    this.basePath = config.path || './backups';
+    this.basePath = path.resolve(config.path || './backups');
+  }
+
+  _resolveSafePath(filePath) {
+    const resolved = path.resolve(this.basePath, filePath);
+    if (!resolved.startsWith(this.basePath + path.sep) && resolved !== this.basePath) {
+      throw new Error('Path traversal detected: path escapes base directory');
+    }
+    return resolved;
   }
 
   async upload(filePath, destinationPath) {
-    const fullDestinationPath = path.join(this.basePath, destinationPath);
+    const fullDestinationPath = this._resolveSafePath(destinationPath);
     await fs.ensureDir(path.dirname(fullDestinationPath));
     await fs.copy(filePath, fullDestinationPath);
     console.log(`File uploaded to local storage: ${fullDestinationPath}`);
@@ -41,7 +49,7 @@ class LocalStorageProvider extends StorageProvider {
   }
 
   async delete(filePath) {
-    const fullPath = path.join(this.basePath, filePath);
+    const fullPath = this._resolveSafePath(filePath);
     if (await fs.pathExists(fullPath)) {
       await fs.remove(fullPath);
       console.log(`File deleted from local storage: ${fullPath}`);
@@ -51,7 +59,7 @@ class LocalStorageProvider extends StorageProvider {
   }
 
   async list(prefix = '') {
-    const fullPrefixPath = path.join(this.basePath, prefix);
+    const fullPrefixPath = this._resolveSafePath(prefix);
     if (!await fs.pathExists(fullPrefixPath)) {
       return [];
     }
@@ -61,7 +69,7 @@ class LocalStorageProvider extends StorageProvider {
   }
 
   async exists(filePath) {
-    const fullPath = path.join(this.basePath, filePath);
+    const fullPath = this._resolveSafePath(filePath);
     return await fs.pathExists(fullPath);
   }
 }

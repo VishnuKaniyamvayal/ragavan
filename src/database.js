@@ -23,10 +23,15 @@ class DatabaseManager {
           connection = new pg.Client(connectionConfig);
           await connection.connect();
           break;
-        case 'mongodb':
-          connection = new MongoClient(connectionConfig.url || `mongodb://${connectionConfig.host}:${connectionConfig.port}/${connectionConfig.database}`);
+        case 'mongodb': {
+          const host = String(connectionConfig.host || 'localhost').replace(/[/?#@]/g, '');
+          const port = parseInt(connectionConfig.port, 10) || 27017;
+          const database = String(connectionConfig.database || '').replace(/[/?#@]/g, '');
+          const mongoUrl = connectionConfig.url || `mongodb://${host}:${port}/${database}`;
+          connection = new MongoClient(mongoUrl);
           await connection.connect();
           break;
+        }
         default:
           throw new Error(`Unsupported database type: ${type}`);
       }
@@ -130,13 +135,21 @@ class DatabaseManager {
     
     return ignoreTables.some(pattern => {
       if (pattern.includes('*')) {
-        // Convert wildcard pattern to regex
-        const regexPattern = pattern.replace(/\*/g, '.*');
+        // Escape regex special chars, then convert wildcard * to safe pattern
+        const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        const regexPattern = escaped.replace(/\*/g, '\\w*');
         const regex = new RegExp(`^${regexPattern}$`);
         return regex.test(tableName);
       }
       return tableName === pattern;
     });
+  }
+
+  validateTableName(name) {
+    if (!/^[\w$]+$/i.test(name)) {
+      throw new Error(`Invalid table name: ${name}`);
+    }
+    return name;
   }
 
   async getTodayData(databaseName, tableName) {
@@ -160,7 +173,7 @@ class DatabaseManager {
       switch (type.toLowerCase()) {
         case 'mysql':
           const [rows] = await connection.execute(`
-            SELECT * FROM \`${tableName}\` 
+            SELECT * FROM \`${this.validateTableName(tableName)}\` 
             WHERE DATE(created_at) = CURDATE() 
             OR DATE(updated_at) = CURDATE()
           `);
@@ -168,7 +181,7 @@ class DatabaseManager {
         case 'postgresql':
         case 'postgres':
           const result = await connection.query(`
-            SELECT * FROM "${tableName}" 
+            SELECT * FROM "${this.validateTableName(tableName)}" 
             WHERE DATE(created_at) = CURRENT_DATE 
             OR DATE(updated_at) = CURRENT_DATE
           `);
